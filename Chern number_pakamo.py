@@ -1,0 +1,118 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jun 18 18:25:20 2024
+
+@author: snagchowdh
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+# Define the lattice vectors
+a1 = np.array([0, -1])
+a2 = np.array([1, 0])
+a3 = np.array([-1, 1])
+
+# Define the matrix A(k)
+def A(kx, ky):
+    A_matrix = np.array([
+        [0, -(1 + np.exp(1j * 2 * (kx * a2[0] + ky * a2[1]))), (1 + np.exp(-1j * 2 * (kx * a1[0] + ky * a1[1])))],
+        [(1 + np.exp(-1j * 2 * (kx * a2[0] + ky * a2[1]))), 0, -(1 + np.exp(1j * 2 * (kx * a3[0] + ky * a3[1])))],
+        [-(1 + np.exp(1j * 2 * (kx * a1[0] + ky * a1[1]))), (1 + np.exp(-1j * 2 * (kx * a3[0] + ky * a3[1]))), 0]
+    ])
+    return A_matrix
+
+# Define the k-space grid
+k_points = 100
+kx_values = np.linspace(-np.pi, np.pi, k_points)
+ky_values = np.linspace(-np.pi, np.pi, k_points)
+
+# Compute the eigenvalues and eigenvectors for each point in k-space
+eigenvalues = np.zeros((k_points, k_points, 3), dtype=complex)
+eigenvectors = np.zeros((k_points, k_points, 3, 3), dtype=complex)
+
+for i, kx in enumerate(kx_values):
+    for j, ky in enumerate(ky_values):
+        eigvals, eigvecs = np.linalg.eig(A(kx, ky))
+        eigenvalues[i, j, :] = eigvals
+        eigenvectors[i, j, :, :] = eigvecs
+
+# Function to calculate Berry curvature using Equations 7a and 7b
+def berry_curvature(eigenvectors, i, j, band):
+    dkx = kx_values[1] - kx_values[0]
+    dky = ky_values[1] - ky_values[0]
+
+    # Compute the Berry connections
+    A_x = np.vdot(eigenvectors[i+1, j, :, band], eigenvectors[i, j, :, band])
+    A_y = np.vdot(eigenvectors[i, j+1, :, band], eigenvectors[i, j, :, band])
+    A_x_prev = np.vdot(eigenvectors[i, j, :, band], eigenvectors[i-1, j, :, band])
+    A_y_prev = np.vdot(eigenvectors[i, j, :, band], eigenvectors[i, j-1, :, band])
+
+    # Compute the derivatives of the Berry connection
+    dAx_dky = (A_x - A_x_prev) / (2 * dky)
+    dAy_dkx = (A_y - A_y_prev) / (2 * dkx)
+
+    # Berry curvature
+    F12 = dAy_dkx - dAx_dky + 1j * (A_x * A_y - A_y * A_x)
+    return np.imag(F12)
+
+# Calculate the Chern numbers using Berry curvature
+chern_numbers = []
+
+# Loop over each band
+for band in range(3):
+    curvature = np.zeros((k_points, k_points), dtype=complex)  # Extend the curvature array size
+    
+    # Compute Berry curvature for the band
+    for i in range(k_points):
+        for j in range(k_points):
+            if i > 0 and i < k_points - 1 and j > 0 and j < k_points - 1:
+                curvature[i, j] = berry_curvature(eigenvectors, i, j, band)
+    
+    # Compute Chern number using Equation 7a
+    chern_number = 0.0
+    for i in range(1, k_points - 1):
+        for j in range(1, k_points - 1):
+            dF_dx = (curvature[i+1, j] - curvature[i-1, j]) / (2 * (kx_values[1] - kx_values[0]))
+            dF_dy = (curvature[i, j+1] - curvature[i, j-1]) / (2 * (ky_values[1] - ky_values[0]))
+            chern_number += (dF_dx + dF_dy) * (kx_values[i+1] - kx_values[i]) * (ky_values[j+1] - ky_values[j])
+    
+    # Normalize by 2*pi to get the Chern number
+    chern_number /= (2 * np.pi)
+    
+    # Round and store the Chern number
+    chern_numbers.append(np.round(chern_number.real))
+
+print("Chern numbers for each band (rounded):", chern_numbers)
+
+# Flatten kx_values and ky_values for 3D plotting
+kx_grid, ky_grid = np.meshgrid(kx_values, ky_values)
+kx_flat = kx_grid.flatten()
+ky_flat = ky_grid.flatten()
+
+# Plot the band structure with Chern number annotations
+fig = plt.figure(figsize=(12, 8))
+ax = fig.add_subplot(111, projection='3d')
+
+colors = ['red', 'green', 'blue']  # Define colors for each band
+
+for band in range(3):
+    eigenvalues_band_flat = eigenvalues[:, :, band].flatten()
+    ax.scatter(kx_flat / np.pi, ky_flat / np.pi, eigenvalues[:, :, band].imag.flatten(), 
+               c=colors[band], label=f'Band {band+1}')
+
+    # Annotate Chern number beside each band
+    max_imag_part = np.max(eigenvalues[:, :, band].imag.flatten())
+    ax.text2D(1.05, 0.95 - band * 0.25, f'Band {band+1}, Chern number: {chern_numbers[band]}', 
+              transform=ax.transAxes, bbox=dict(facecolor='white', alpha=0.8), fontsize=10)
+
+ax.set_xlabel('$k_x / \pi$')
+ax.set_ylabel('$k_y / \pi$')
+ax.set_zlabel('Imaginary part of eigenvalues')
+ax.set_title('Band Structure with Chern Numbers')
+
+# Add legend
+ax.legend(loc='upper left')
+
+plt.show()
